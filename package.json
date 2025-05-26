@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.22",
+    "@sentry/nextjs": "^9.22.0",
     "ai": "^4.3.16",
     "next": "15.3.2",
     "react": "^19.0.0",
