@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Create a detailed prompt for DALL-E based on the recipe
-    const basePrompt = `A beautifully styled food photography shot of ${recipeTitle} captured with a Leica Summicron 50mm f/2 lens. Professional food styling with perfect lighting, shallow depth of field, and artistic composition. The dish should be the hero of the image with beautiful bokeh in the background. Clean, modern presentation on elegant dishware. Soft natural lighting that highlights textures and colors. Shot from a flattering angle that showcases the dish's most appetizing features. High-end restaurant quality plating and presentation.`;
+    const basePrompt = `A beautifully styled food photography shot of ${recipeTitle} captured with a Leica Summicron 50mm f/2 lens. Professional food styling with perfect lighting, shallow depth of field, and artistic composition. The dish should be the hero of the image with beautiful bokeh in the background. Clean, modern presentation on elegant dishware. Soft natural lighting that highlights textures and colors. Shot from a flattering angle that showcases the dish's most appetizing features. Fine casual dining restaurant quality plating and presentation, not michelin style.`;
     
     // Add recipe context if available
     const recipeContext = recipeContent ? `\n\nRecipe details for accurate representation: ${recipeContent.slice(0, 1000)}` : '';

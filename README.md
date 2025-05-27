@@ -1,4 +1,4 @@
-# Recipe Combiner App
+# NomNomatic App
 
 A Next.js application that finds the top 10 recipes for any dish and combines them into one optimized recipe. Enhanced with MCP (Model Context Protocol) integration for weather and seasonal context.
 
