@@ -2,6 +2,9 @@ export interface MCPToolCall {
   toolName: string;
   args: Record<string, unknown>;
   result: unknown;
+  startTime?: number;
+  endTime?: number;
+  duration?: number;
 }
 
 export interface MCPTool {
@@ -25,6 +28,16 @@ export interface MCPData {
   transport: MCPTransport[] | null;
   error: string | null;
   toolDetails: Record<string, unknown>;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  timing?: {
+    startTime: number;
+    endTime: number;
+    duration: number;
+  };
 }
 
 export function isMCPData(data: unknown): data is MCPData {

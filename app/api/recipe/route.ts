@@ -180,26 +180,27 @@ Format your response as:
 
 Then create a unified recipe following the format specified in your system prompt.${
       mcpToolsLoaded && Object.keys(mcpTools).length > 0
-        ? " Use any available MCP tools that might enhance your research or provide additional context."
+        ? " Use any available MCP tools that might enhance your research or provide additional context. After using tools, you MUST provide the final unified recipe in the specified format."
         : ""
-    }`;
+    }
+
+IMPORTANT: After gathering information with tools, you must generate the complete recipe output in the specified markdown format. Do not end with tool calls - always provide the final recipe text.`;
 
     // Store the prompts and tools in MCP data
     mcpData.systemPrompt = systemPrompt;
     mcpData.userPrompt = userPrompt;
     mcpData.model = model;
 
+    const startTime = Date.now();
+    
     const result = await generateText({
       model: openai(model),
       ...(mcpToolsLoaded && Object.keys(mcpTools).length > 0
         ? { tools: mcpTools }
         : {}), // Only include tools if they exist
-      maxSteps: 5, // Allow multiple tool calls and then final generation
+      maxSteps: 8, // Reduced to encourage final text generation
       system: systemPrompt,
       prompt: userPrompt,
-      ...(mcpToolsLoaded && Object.keys(mcpTools).length > 0
-        ? { toolChoice: "auto" }
-        : {}),
       experimental_telemetry: {
         functionId: "recipe-generation",
         isEnabled: true,
@@ -208,14 +209,25 @@ Then create a unified recipe following the format specified in your system promp
       },
     });
 
+    const endTime = Date.now();
+    const totalDuration = endTime - startTime;
+
     // Extract any tool calls that were made
     if (result.steps) {
+      let stepStartTime = startTime;
+      
       mcpData.toolsUsed = result.steps
         .filter((step) => step.toolCalls && step.toolCalls.length > 0)
         .flatMap((step) => {
           if (!step.toolCalls) return [];
           
-          return step.toolCalls.map((call): MCPToolCall => {
+          // Estimate timing for each step (distribute total time across steps)
+          const stepDuration = result.steps.length > 0 ? totalDuration / result.steps.length : totalDuration;
+          const currentStepStart = stepStartTime;
+          const currentStepEnd = stepStartTime + stepDuration;
+          stepStartTime = currentStepEnd;
+          
+          return step.toolCalls.map((call, callIndex): MCPToolCall => {
             // Type assertion to work around AI SDK type inference issues
             const toolCall = call as {
               toolCallId?: string;
@@ -232,22 +244,43 @@ Then create a unified recipe following the format specified in your system promp
               (r) => r.toolCallId === toolCall.toolCallId
             );
             
+            // Estimate individual tool call timing within the step
+            const toolCallDuration = step.toolCalls.length > 0 ? stepDuration / step.toolCalls.length : stepDuration;
+            const toolCallStart = currentStepStart + (callIndex * toolCallDuration);
+            const toolCallEnd = toolCallStart + toolCallDuration;
+            
             return {
               toolName: toolCall.toolName || "unknown",
               args: toolCall.args || {},
               result: toolResult?.result || null,
+              startTime: Math.round(toolCallStart),
+              endTime: Math.round(toolCallEnd),
+              duration: Math.round(toolCallDuration),
             };
           });
         });
     }
 
+    // Add usage information to MCP data
+    if (result.usage) {
+      mcpData.usage = {
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        totalTokens: result.usage.totalTokens,
+      };
+    }
+
+    // Add timing information to MCP data
+    mcpData.timing = {
+      startTime,
+      endTime,
+      duration: totalDuration,
+    };
+
     console.log("AI Response received");
-    console.log("Response text length:", result.text?.length || 0);
-    console.log("Response object keys:", Object.keys(result));
-    console.log("Full AI Response:", JSON.stringify(result, null, 2));
 
     // Extract text from the result
-    const text = result.text || "";
+    const text = result.text || "❌ Recipe generation completed but no text was returned. Please try again.";
 
     return NextResponse.json({
       recipe: text,

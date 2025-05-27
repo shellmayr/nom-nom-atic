@@ -3,8 +3,6 @@
 import { useState, useEffect } from "react";
 import RecipeForm from "../components/RecipeForm";
 import TabbedRecipeView from "../components/TabbedRecipeView";
-import CombinedMCPDebugPanel from "../components/CombinedMCPDebugPanel";
-import { RecipeLoadingSkeleton, DebugLoadingSkeleton } from "../components/LoadingSkeleton";
 import { generateCombinedRecipe, generateCreativeTitle, generateRecipeImage, getNutritionData, NutritionData } from "../services/recipeApi";
 import { MCPData, isMCPData, hasMCPTools } from "../types/mcp";
 import { parseRecipeContent } from "../utils/recipeParser";
@@ -19,6 +17,7 @@ export default function Home() {
   const [recipeMcpData, setRecipeMcpData] = useState<MCPData | null>(null);
   const [nutritionMcpData, setNutritionMcpData] = useState<unknown>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [hasContent, setHasContent] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -27,60 +26,74 @@ export default function Home() {
 
   const handleRecipeSubmit = async (userInput: string) => {
     setIsLoading(true);
-    setRecipeTitle(""); // Clear previous title
-    setRecipeImage(null); // Clear previous image
-    setNutritionData(null); // Clear previous nutrition data
-    setNutritionMcpData(null); // Clear previous nutrition MCP data
-    setNutritionLoading(false); // Reset nutrition loading state
-    
-    // Generate the recipe first
-    const result = await generateCombinedRecipe(userInput);
-    setRecipe(result.recipe);
-    
-    // Type guard for MCP data
-    if (isMCPData(result.mcpData)) {
-      setRecipeMcpData(result.mcpData);
-    } else {
-      setRecipeMcpData(null);
-    }
-    
-    // Generate creative title if we have MCP data with location/weather info
-    let finalTitle = userInput; // Default fallback
-    if (hasMCPTools(result.mcpData) && result.mcpData.toolsUsed.length > 0) {
-      const creativeName = await generateCreativeTitle(userInput, result.mcpData);
-      finalTitle = creativeName;
-    }
-    setRecipeTitle(finalTitle);
-    
-    // Parse ingredients from recipe for nutrition analysis
-    const parsedRecipe = parseRecipeContent(result.recipe);
-    const ingredientsList = parsedRecipe.ingredients.map(ing => 
-      ing.replace(/^[•\-\*]\s*/, '').replace(/^\d+\.\s*/, '')
-    );
-    
-    // Start background nutrition loading
-    setNutritionLoading(true);
-    
-    // Parallelize image generation and nutrition data fetching
-    const [imageUrl, nutritionResult] = await Promise.all([
-      generateRecipeImage(finalTitle),
-      getNutritionData(ingredientsList)
-    ]);
-    
-    // Set image immediately
-    if (imageUrl) {
-      setRecipeImage(imageUrl);
-    }
-    
-    // Set nutrition data and MCP data, then stop loading
-    if (nutritionResult.nutritionData) {
-      setNutritionData(nutritionResult.nutritionData);
-    }
-    setNutritionMcpData(nutritionResult.mcpData);
+    setHasContent(true);
+    setRecipe("");
+    setRecipeTitle("");
+    setRecipeImage(null);
+    setNutritionData(null);
+    setRecipeMcpData(null);
+    setNutritionMcpData(null);
     setNutritionLoading(false);
     
-    // Recipe generation is complete
-    setIsLoading(false);
+    try {
+      // Generate the recipe first
+      const result = await generateCombinedRecipe(userInput);
+      setRecipe(result.recipe);
+      
+      // Recipe is ready - show it immediately
+      setIsLoading(false);
+      
+      // Set recipe MCP data immediately when available
+      if (isMCPData(result.mcpData)) {
+        setRecipeMcpData(result.mcpData);
+      } else {
+        setRecipeMcpData(null);
+      }
+      
+      // Generate creative title if we have MCP data with location/weather info
+      let finalTitle = userInput; // Default fallback
+      if (hasMCPTools(result.mcpData) && result.mcpData.toolsUsed.length > 0) {
+        try {
+          const creativeName = await generateCreativeTitle(userInput, result.mcpData);
+          finalTitle = creativeName;
+        } catch (titleError) {
+          console.error("Error generating creative title:", titleError);
+          // Keep the default title (userInput) if title generation fails
+        }
+      }
+      setRecipeTitle(finalTitle);
+      
+      // Start background processes (nutrition and image)
+      setNutritionLoading(true);
+      
+      // Parse ingredients from recipe for nutrition analysis
+      const parsedRecipe = parseRecipeContent(result.recipe);
+      const ingredientsList = parsedRecipe.ingredients.map(ing => 
+        ing.replace(/^[•\-\*]\s*/, '').replace(/^\d+\.\s*/, '')
+      );
+      
+      // Run background processes
+      const [imageUrl, nutritionResult] = await Promise.all([
+        generateRecipeImage(finalTitle),
+        getNutritionData(ingredientsList)
+      ]);
+      
+      // Set results
+      if (imageUrl) {
+        setRecipeImage(imageUrl);
+      }
+      
+      if (nutritionResult.nutritionData) {
+        setNutritionData(nutritionResult.nutritionData);
+      }
+      setNutritionMcpData(nutritionResult.mcpData);
+      setNutritionLoading(false);
+      
+    } catch (error) {
+      console.error("Error in recipe generation:", error);
+      setIsLoading(false);
+      setNutritionLoading(false);
+    }
   };
 
   if (!mounted) {
@@ -93,38 +106,21 @@ export default function Home() {
       <RecipeForm onSubmit={handleRecipeSubmit} isLoading={isLoading} />
 
       {/* Main Content */}
-      {((recipe ? true : false) || (recipeMcpData ? true : false) || (nutritionMcpData ? true : false)) && !isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Recipe Section with Tabs - Takes 2/3 of the width */}
-          {recipe && (
-            <TabbedRecipeView
-              recipe={recipe}
-              recipeTitle={recipeTitle}
-              recipeImage={recipeImage}
-              nutritionData={nutritionData}
-              nutritionLoading={nutritionLoading}
-              servings={servings}
-              onServingsChange={setServings}
-            />
-          )}
-
-          {/* Combined MCP Data Section - Takes 1/3 of the width on the right */}
-          {((recipeMcpData ? true : false) || (nutritionMcpData ? true : false)) && (
-            <CombinedMCPDebugPanel 
-              recipeMcpData={recipeMcpData}
-              nutritionMcpData={nutritionMcpData}
-            />
-          )}
-        </div>
-      )}
-
-      {/* Loading State */}
-      {isLoading && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2">
-            <RecipeLoadingSkeleton />
-          </div>
-          <DebugLoadingSkeleton />
+      {hasContent && (
+        <div className="grid grid-cols-1 gap-6">
+          {/* Recipe Section with Tabs - Takes full width */}
+          <TabbedRecipeView
+            recipe={recipe}
+            recipeTitle={recipeTitle}
+            recipeImage={recipeImage}
+            nutritionData={nutritionData}
+            nutritionLoading={nutritionLoading}
+            servings={servings}
+            onServingsChange={setServings}
+            recipeMcpData={recipeMcpData}
+            nutritionMcpData={nutritionMcpData}
+            isRecipeLoading={isLoading}
+          />
         </div>
       )}
     </div>

@@ -4,11 +4,13 @@ import { parseMCPContent } from "../utils/recipeParser";
 interface CombinedMCPDebugPanelProps {
   recipeMcpData: unknown;
   nutritionMcpData: unknown;
+  nutritionLoading?: boolean;
 }
 
 export default function CombinedMCPDebugPanel({ 
   recipeMcpData, 
-  nutritionMcpData 
+  nutritionMcpData,
+  nutritionLoading = false
 }: CombinedMCPDebugPanelProps) {
   const recipeData = isMCPData(recipeMcpData) ? recipeMcpData : null;
   const nutritionData = isMCPData(nutritionMcpData) ? nutritionMcpData : null;
@@ -89,6 +91,29 @@ export default function CombinedMCPDebugPanel({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* Nutrition Loading State */}
+        {nutritionLoading && !nutritionData && (
+          <div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"></div>
+              <h3 className="font-semibold text-gray-800">Nutrition Analysis</h3>
+              <div className="flex items-center gap-2">
+                <div className="animate-spin rounded-full h-3 w-3 border border-emerald-300 border-t-emerald-500"></div>
+                <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-full">
+                  Loading...
+                </span>
+              </div>
+            </div>
+            
+            <div className="space-y-3 ml-5">
+              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+                <p className="text-sm text-emerald-700">Analyzing ingredients...</p>
+                <p className="text-xs text-emerald-600 mt-1">Fetching nutritional data via MCP</p>
+              </div>
             </div>
           </div>
         )}

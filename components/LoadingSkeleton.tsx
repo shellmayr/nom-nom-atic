@@ -1,14 +1,20 @@
 export function RecipeLoadingSkeleton() {
   return (
-    <div className="lg:col-span-2">
-      {/* Tab Headers Skeleton */}
+    <div>
+      {/* Real Tab Headers with Loading Indicators */}
       <div className="flex border-b border-gray-200 mb-6">
-        <div className="px-6 py-3 border-b-2 border-blue-500">
-          <div className="h-4 bg-gray-200 rounded animate-pulse w-12"></div>
-        </div>
-        <div className="px-6 py-3 border-b-2 border-transparent">
-          <div className="h-4 bg-gray-200 rounded animate-pulse w-16"></div>
-        </div>
+        <button className="px-6 py-3 font-medium text-sm transition-colors duration-200 border-b-2 border-blue-500 text-blue-600 flex items-center gap-2">
+          Recipe
+          <div className="animate-spin rounded-full h-4 w-4 border-2 border-gray-300 border-t-blue-500"></div>
+        </button>
+        <button className="px-6 py-3 font-medium text-sm transition-colors duration-200 border-b-2 border-transparent text-gray-500 flex items-center gap-2">
+          Nutrition
+          <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+        </button>
+        <button className="px-6 py-3 font-medium text-sm transition-colors duration-200 border-b-2 border-transparent text-gray-500 flex items-center gap-2">
+          Trace
+          <div className="w-2 h-2 bg-gray-300 rounded-full"></div>
+        </button>
       </div>
 
       {/* Recipe Content Skeleton */}

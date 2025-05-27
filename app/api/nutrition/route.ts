@@ -126,6 +126,8 @@ Format your response as JSON:
       mcpData.systemPrompt = systemPrompt;
       mcpData.userPrompt = userPrompt;
 
+      const startTime = Date.now();
+
       // Use AI to analyze ingredients and get nutrition data
       const result = await generateText({
         model: openai("gpt-4o-mini"),
@@ -136,14 +138,25 @@ Format your response as JSON:
         toolChoice: "auto",
       });
 
+      const endTime = Date.now();
+      const totalDuration = endTime - startTime;
+
       // Extract any tool calls that were made
       if (result.steps) {
+        let stepStartTime = startTime;
+        
         mcpData.toolsUsed = result.steps
           .filter((step) => step.toolCalls && step.toolCalls.length > 0)
           .flatMap((step) => {
             if (!step.toolCalls) return [];
             
-            return step.toolCalls.map((call): MCPToolCall => {
+            // Estimate timing for each step (distribute total time across steps)
+            const stepDuration = result.steps.length > 0 ? totalDuration / result.steps.length : totalDuration;
+            const currentStepStart = stepStartTime;
+            const currentStepEnd = stepStartTime + stepDuration;
+            stepStartTime = currentStepEnd;
+            
+            return step.toolCalls.map((call, callIndex): MCPToolCall => {
               // Type assertion to work around AI SDK type inference issues
               const toolCall = call as {
                 toolCallId?: string;
@@ -160,14 +173,38 @@ Format your response as JSON:
                 (r) => r.toolCallId === toolCall.toolCallId
               );
               
+              // Estimate individual tool call timing within the step
+              const toolCallDuration = step.toolCalls.length > 0 ? stepDuration / step.toolCalls.length : stepDuration;
+              const toolCallStart = currentStepStart + (callIndex * toolCallDuration);
+              const toolCallEnd = toolCallStart + toolCallDuration;
+              
               return {
                 toolName: toolCall.toolName || "unknown",
                 args: toolCall.args || {},
                 result: toolResult?.result || null,
+                startTime: Math.round(toolCallStart),
+                endTime: Math.round(toolCallEnd),
+                duration: Math.round(toolCallDuration),
               };
             });
           });
       }
+
+      // Add usage information to MCP data
+      if (result.usage) {
+        mcpData.usage = {
+          promptTokens: result.usage.promptTokens,
+          completionTokens: result.usage.completionTokens,
+          totalTokens: result.usage.totalTokens,
+        };
+      }
+
+      // Add timing information to MCP data
+      mcpData.timing = {
+        startTime,
+        endTime,
+        duration: totalDuration,
+      };
 
       // Try to parse the response as JSON
       try {
