@@ -1,13 +1,30 @@
+export interface MCPToolCall {
+  toolName: string;
+  args: Record<string, unknown>;
+  result: unknown;
+}
+
 export interface MCPTool {
   toolName: string;
   result?: unknown;
 }
 
+export interface MCPTransport {
+  name: string;
+  command: string;
+  args: string[];
+}
+
 export interface MCPData {
   enabled: boolean;
   model: string;
-  toolsAvailable: unknown[];
-  toolsUsed: MCPTool[];
+  systemPrompt: string;
+  userPrompt: string;
+  toolsAvailable: string[];
+  toolsUsed: MCPToolCall[];
+  transport: MCPTransport[] | null;
+  error: string | null;
+  toolDetails: Record<string, unknown>;
 }
 
 export function isMCPData(data: unknown): data is MCPData {

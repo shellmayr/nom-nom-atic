@@ -3,6 +3,7 @@ import { Experimental_StdioMCPTransport } from "ai/mcp-stdio";
 import { openai } from "@ai-sdk/openai";
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
+import { MCPData, MCPToolCall } from "../../../types/mcp";
 
 export async function POST(request: NextRequest) {
   const model = "gpt-4o-mini";
@@ -31,20 +32,16 @@ export async function POST(request: NextRequest) {
     // Try to create MCP client for additional tools (optional)
     let mcpTools = {};
     let mcpToolsLoaded = false;
-    const mcpData = {
+    const mcpData: MCPData = {
       enabled: true,
-      toolsAvailable: [] as string[],
-      toolsUsed: [] as Array<{
-        toolName: string;
-        args: any;
-        result: any;
-      }>,
-      transport: null as any,
-      error: null as string | null,
+      toolsAvailable: [],
+      toolsUsed: [],
+      transport: null,
+      error: null,
       systemPrompt: "",
       userPrompt: "",
       model: "",
-      toolDetails: {} as any,
+      toolDetails: {},
     };
 
     // Temporarily disable MCP to debug empty response issue
@@ -53,24 +50,68 @@ export async function POST(request: NextRequest) {
     if (enableMCP) {
       try {
         // Connect to our custom weather MCP server
-        const transport = new Experimental_StdioMCPTransport({
+        const weatherTransport = new Experimental_StdioMCPTransport({
           command: "node",
           args: ["mcp-servers/weather-server.js"],
         });
 
-        mcpClient = await experimental_createMCPClient({
-          transport,
+        const weatherClient = await experimental_createMCPClient({
+          transport: weatherTransport,
         });
 
-        mcpTools = await mcpClient.tools();
+        const weatherTools = await weatherClient.tools();
+
+        // Connect to Nutritionix MCP server
+        let nutritionTools = {};
+        let nutritionClient = null;
+        try {
+          const nutritionTransport = new Experimental_StdioMCPTransport({
+            command: "uvx",
+            args: [
+              "nutritionix-mcp-server",
+              "--app-id",
+              process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
+              "--app-key", 
+              process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY"
+            ],
+          });
+
+          nutritionClient = await experimental_createMCPClient({
+            transport: nutritionTransport,
+          });
+
+          nutritionTools = await nutritionClient.tools();
+          console.log("Nutritionix tools loaded:", Object.keys(nutritionTools));
+        } catch (nutritionError) {
+          console.log("Nutritionix MCP not available:", nutritionError);
+        }
+
+        // Combine tools from both servers
+        mcpTools = { ...weatherTools, ...nutritionTools };
+        mcpClient = weatherClient; // Store primary client for cleanup
+        
         mcpToolsLoaded = true;
         mcpData.toolsAvailable = Object.keys(mcpTools);
-        mcpData.transport = {
-          command: "node",
-          args: ["mcp-servers/weather-server.js"],
-        };
+        mcpData.transport = [
+          {
+            name: "weather",
+            command: "node",
+            args: ["mcp-servers/weather-server.js"],
+          },
+          {
+            name: "nutritionix", 
+            command: "uvx",
+            args: [
+              "nutritionix-mcp-server",
+              "--app-id",
+              process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
+              "--app-key",
+              process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY"
+            ],
+          }
+        ];
         mcpData.toolDetails = mcpTools;
-        console.log("MCP tools loaded:", Object.keys(mcpTools));
+        console.log("All MCP tools loaded:", Object.keys(mcpTools));
         console.log("MCP tools details:", JSON.stringify(mcpTools, null, 2));
       } catch (mcpError) {
         console.log(
@@ -96,7 +137,7 @@ export async function POST(request: NextRequest) {
 
 ${
   mcpToolsLoaded && Object.keys(mcpTools).length > 0
-    ? "You have access to MCP tools for additional functionality. Use them if they can help with recipe research or enhancement. Make sure to only call each tool once with the same parameters to not waste time."
+    ? "You have access to MCP tools for additional functionality, including weather information and nutrition data. Use them if they can help with recipe research or enhancement. For nutrition tools, you can look up nutritional information for ingredients to provide healthier alternatives or portion guidance. Make sure to only call each tool once with the same parameters to not waste time."
     : ""
 }
 
@@ -104,16 +145,21 @@ Follow this process:
 1. Figure out if the recipe actually exists, otherwise tell the user that it doesn't exist
 2. Research and identify 10 high-quality recipes for the requested dish
 3. Analyze common ingredients and techniques across all recipes
-4. Create a unified recipe that includes only ingredients/steps that appear in multiple recipes
-5. For ingredients that appear in only 1-2 recipes but add special flavor/technique, list them as optional variations
-6. Based on the current season, which you can get from the get_weather call, choose local/regional additions that make the dish special
+4. Use nutrition tools if available to provide nutritional insights about key ingredients
+5. Create a unified recipe that includes only ingredients/steps that appear in multiple recipes
+6. For ingredients that appear in only 1-2 recipes but add special flavor/technique, list them as optional variations
+7. Based on the current season, which you can get from the get_weather call, choose local/regional additions that make the dish special
       It is of the utmost importance that you stick to the information provided by the tools. Do not make up information. 
-7. Make sure that all ingredients use metric units, like grams, liters, kilograms, etc., and only use weight units unless it is a liquid. 
+8. Make sure that all ingredients use metric units, like grams, liters, kilograms, etc., and only use weight units unless it is a liquid. 
+
 Format your response as:
 ## Unified [Dish Name] Recipe
 
 ### Seasonal Context:
 [Brief note about current season and how it influences the recipe]
+
+### Nutritional Highlights:
+[If nutrition data is available, briefly mention key nutritional benefits of main ingredients]
 
 ### Ingredients:
 [List core ingredients that appear in multiple recipes]
@@ -128,7 +174,7 @@ Format your response as:
 [Based on current season, suggest local/regional ingredients or techniques that would make this dish special for the current time]
 
 ### Notes:
-[Any important tips or observations from your research]`;
+[Any important tips or observations from your research, including nutritional tips if available]`;
 
     const userPrompt = `Please find the top 10 high-quality recipes for: ${input}
 
@@ -166,17 +212,33 @@ Then create a unified recipe following the format specified in your system promp
     if (result.steps) {
       mcpData.toolsUsed = result.steps
         .filter((step) => step.toolCalls && step.toolCalls.length > 0)
-        .flatMap(
-          (step) =>
-            step.toolCalls?.map((call) => ({
-              toolName: call.toolName || "unknown",
-              args: call.args || {},
-              result:
-                step.toolResults?.find(
-                  (r) => r.toolCallId === call.toolCallId
-                )?.result || null,
-            })) || []
-        );
+        .flatMap((step) => {
+          if (!step.toolCalls) return [];
+          
+          return step.toolCalls.map((call): MCPToolCall => {
+            // Type assertion to work around AI SDK type inference issues
+            const toolCall = call as {
+              toolCallId?: string;
+              toolName?: string;
+              args?: Record<string, unknown>;
+            };
+            
+            const toolResults = step.toolResults as Array<{
+              toolCallId?: string;
+              result?: unknown;
+            }> | undefined;
+            
+            const toolResult = toolResults?.find(
+              (r) => r.toolCallId === toolCall.toolCallId
+            );
+            
+            return {
+              toolName: toolCall.toolName || "unknown",
+              args: toolCall.args || {},
+              result: toolResult?.result || null,
+            };
+          });
+        });
     }
 
     console.log("AI Response received");
