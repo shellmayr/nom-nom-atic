@@ -1,4 +1,5 @@
-import { generateText } from "ai";
+import { generateText, experimental_createMCPClient } from "ai";
+import { Experimental_StdioMCPTransport } from "ai/mcp-stdio";
 import { openai } from "@ai-sdk/openai";
 import { NextRequest, NextResponse } from "next/server";
 import * as Sentry from "@sentry/nextjs";
@@ -62,6 +63,7 @@ export async function POST(request: NextRequest) {
     },
     async () => {
       const model = "gpt-4o-mini";
+      let mcpClient: Awaited<ReturnType<typeof experimental_createMCPClient>> | null = null;
       
       try {
         const { input } = await request.json();
@@ -81,20 +83,48 @@ export async function POST(request: NextRequest) {
           );
         }
 
-        const result = await Sentry.startSpan(
-          {
-            name: "ai.pipeline.generateText",
-            op: "ai.pipeline.generateText",
-            attributes: {
-              "ai.model.id": model,
-              "ai.input.type": "text",
-              "ai.input.prompt": input,
-            },
-          },
-          async () => {
-            return await generateText({
-              model: openai(model),
-              system: `You are an expert chef and recipe researcher. Your task is to find the top 10 high-quality recipes for a given dish, analyze them, and create one unified "best" recipe that combines their strengths.
+        // Try to create MCP client for additional tools (optional)
+        let mcpTools = {};
+        let mcpToolsLoaded = false;
+        
+        // Temporarily disable MCP to debug empty response issue
+        const enableMCP = true; // Set to true to enable MCP
+        
+        if (enableMCP) {
+          try {
+            // Connect to our custom weather MCP server
+            const transport = new Experimental_StdioMCPTransport({
+              command: 'node',
+              args: ['mcp-servers/weather-server.js'],
+            });
+            
+            mcpClient = await experimental_createMCPClient({
+              transport,
+            });
+            
+            mcpTools = await mcpClient.tools();
+            mcpToolsLoaded = true;
+            console.log("MCP tools loaded:", Object.keys(mcpTools));
+            console.log("MCP tools details:", JSON.stringify(mcpTools, null, 2));
+          } catch (mcpError) {
+            console.log("MCP not available, continuing without MCP tools:", mcpError);
+            // Continue without MCP tools
+          }
+        } else {
+          console.log("MCP disabled for debugging");
+        }
+
+        console.log("About to call generateText with tools:", Object.keys(mcpTools));
+
+        const result = await generateText({
+          model: openai(model),
+          ...(mcpToolsLoaded && Object.keys(mcpTools).length > 0 ? { tools: mcpTools } : {}), // Only include tools if they exist
+          maxSteps: 5, // Allow multiple tool calls and then final generation
+          system: `You are an expert chef and recipe researcher. Your task is to find the top 10 high-quality recipes for a given dish, analyze them, and create one unified "best" recipe that combines their strengths.
+
+${mcpToolsLoaded && Object.keys(mcpTools).length > 0 ? 
+  "You have access to MCP tools for additional functionality. Use them if they can help with recipe research or enhancement." : 
+  ""}
 
 Follow this process:
 1. Figure out if the recipe actually exists, otherwise tell the user that it doesn't exist
@@ -124,14 +154,16 @@ Format your response as:
 
 ### Notes:
 [Any important tips or observations from your research]`,
-              prompt: `Please find the top 10 high-quality recipes for: ${input}
+          prompt: `Please find the top 10 high-quality recipes for: ${input}
 
-Then create a unified recipe following the format specified in your system prompt.`,
-            });
-          }
-        );
+Then create a unified recipe following the format specified in your system prompt.${mcpToolsLoaded && Object.keys(mcpTools).length > 0 ? " Use any available MCP tools that might enhance your research or provide additional context." : ""}`,
+          ...(mcpToolsLoaded && Object.keys(mcpTools).length > 0 ? { toolChoice: "auto" } : {}),
+        });
 
-        console.log("AI Response:", JSON.stringify(result, null, 2));
+        console.log("AI Response received");
+        console.log("Response text length:", result.text?.length || 0);
+        console.log("Response object keys:", Object.keys(result));
+        console.log("Full AI Response:", JSON.stringify(result, null, 2));
 
         // Extract text from the result
         const text = result.text || "";
@@ -144,6 +176,15 @@ Then create a unified recipe following the format specified in your system promp
           { error: "Failed to generate recipe" },
           { status: 500 }
         );
+      } finally {
+        // Clean up MCP client
+        if (mcpClient) {
+          try {
+            await mcpClient.close();
+          } catch (closeError) {
+            console.error("Error closing MCP client:", closeError);
+          }
+        }
       }
     }
   );

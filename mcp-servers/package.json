@@ -1,0 +1,13 @@
+{
+  "name": "weather-mcp-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Simple weather MCP server for recipe recommendations",
+  "main": "weather-server.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "scripts": {
+    "start": "node weather-server.js"
+  }
+} 

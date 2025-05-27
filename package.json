@@ -6,7 +6,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "mcp:install": "cd mcp-servers && npm install",
+    "mcp:weather": "cd mcp-servers && npm start",
+    "mcp:weather-dev": "cd mcp-servers && node weather-server.js",
+    "dev:full": "concurrently \"npm run dev\" \"npm run mcp:weather-dev\"",
+    "setup": "npm install && npm run mcp:install"
   },
   "dependencies": {
     "@ai-sdk/openai": "^1.3.22",
@@ -23,6 +28,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.1.2",
     "eslint": "^9",
     "eslint-config-next": "15.3.2",
     "tailwindcss": "^4",
