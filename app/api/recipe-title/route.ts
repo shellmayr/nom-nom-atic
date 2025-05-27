@@ -73,11 +73,17 @@ Requirements:
 - Keep it concise (2-8 words)
 - Make it sound appetizing and unique
 - You can use local landmarks, weather references, or seasonal elements
+- Make sure the name is not just a composite of the ingredients and make sure it's somewhat millenial / gen z
+- Try using a word from the language of the location if it's not English, and make sure it's a word that is somewhat known in English vernacular
+- It should be a single phrase, not a question, and not a statement or a sentence
+- You can also sometimes use the name of a movie as a basis, but change it and make sure it's a good movie
+- The name should be something that Action Bronson would say on fuck that's delicious
 
 Examples of good creative names:
-- "Golden Gate Fog-Kissed Chocolate Cookies"
-- "Autumn Harvest San Francisco Stew"
-- "Rainy Day Mission District Pasta"
+- "Yolo Pineapple Chicken"
+- "Brainrot Stew"
+- "Sick Sushi"
+- "Funky Spring Sashimi"
 
 Generate ONLY the recipe title, nothing else.`;
 
@@ -85,6 +91,12 @@ Generate ONLY the recipe title, nothing else.`;
       model: openai("gpt-4o-mini"),
       prompt: prompt,
       maxTokens: 50,
+      experimental_telemetry: {
+        functionId: "name-generation",
+        isEnabled: true,
+        recordInputs: true,
+        recordOutputs: true,
+      }
     });
 
     const title = result.text?.trim() || recipeName;
