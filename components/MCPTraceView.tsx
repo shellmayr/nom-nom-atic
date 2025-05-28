@@ -38,6 +38,15 @@ export default function MCPTraceView({
   let earliestStart: number | null = null;
   let latestEnd: number | null = null;
 
+  // Helper function to determine if a tool is nutrition-related
+  const isNutritionTool = (toolName: string) => {
+    return toolName.toLowerCase().includes('nutrition') || 
+           toolName.toLowerCase().includes('food') ||
+           toolName.toLowerCase().includes('ingredient') ||
+           toolName.toLowerCase().includes('calorie');
+  };
+
+  // Process recipe data and categorize tools
   if (recipeData?.toolsUsed) {
     recipeData.toolsUsed.forEach((tool, index) => {
       // Only use actual timestamps, no fallbacks
@@ -53,11 +62,16 @@ export default function MCPTraceView({
           }; 
           tokenUsage?: number;
         };
+        
+        // Categorize by tool purpose, not data source
+        const isNutrition = isNutritionTool(tool.toolName);
+        const isError = tool.isError || !!tool.error;
+        
         allCalls.push({
           ...tool,
-          service: 'recipe',
-          serviceColor: 'bg-blue-500',
-          serviceBg: 'bg-blue-50',
+          service: isNutrition ? 'nutrition' : 'recipe',
+          serviceColor: isError ? 'bg-red-500' : (isNutrition ? 'bg-emerald-500' : 'bg-blue-500'),
+          serviceBg: isError ? 'bg-red-50' : (isNutrition ? 'bg-emerald-50' : 'bg-blue-50'),
           index,
           startTime,
           endTime,
@@ -73,7 +87,8 @@ export default function MCPTraceView({
     });
   }
 
-  if (nutritionData?.toolsUsed) {
+  // Only process separate nutrition data if it exists and is different from recipe data
+  if (nutritionData?.toolsUsed && nutritionData !== recipeData) {
     nutritionData.toolsUsed.forEach((tool, index) => {
       // Only use actual timestamps, no fallbacks
       const startTime = tool.startTime;
@@ -116,6 +131,14 @@ export default function MCPTraceView({
   const timelineEnd = latestEnd || 0;
   const totalDuration = timelineEnd - timelineStart;
 
+  // Count tools by purpose
+  const recipeCalls = allCalls.filter(call => call.service === 'recipe');
+  const nutritionCalls = allCalls.filter(call => call.service === 'nutrition');
+  const errorCalls = allCalls.filter(call => call.isError);
+  const activeServices = [];
+  if (recipeCalls.length > 0) activeServices.push('recipe');
+  if (nutritionCalls.length > 0) activeServices.push('nutrition');
+
   const formatTime = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', { 
       hour12: false, 
@@ -146,17 +169,21 @@ export default function MCPTraceView({
           </div>
           <div>
             <span className="text-gray-600">Services:</span>
-            <span className="ml-2 font-medium text-gray-900">
-              {[recipeData, nutritionData].filter(Boolean).length}
-            </span>
+            <span className="ml-2 font-medium text-gray-900">{activeServices.length}</span>
           </div>
+          {errorCalls.length > 0 && (
+            <div>
+              <span className="text-gray-600">Errors:</span>
+              <span className="ml-2 font-medium text-red-600">{errorCalls.length}</span>
+            </div>
+          )}
           <div>
             <span className="text-gray-600">Total Tokens:</span>
             <span className="ml-2 font-medium text-gray-900">
               {(() => {
                 let totalTokens = 0;
                 if (recipeData?.usage?.totalTokens) totalTokens += recipeData.usage.totalTokens;
-                if (nutritionData?.usage?.totalTokens) totalTokens += nutritionData.usage.totalTokens;
+                if (nutritionData?.usage?.totalTokens && nutritionData !== recipeData) totalTokens += nutritionData.usage.totalTokens;
                 return totalTokens > 0 ? totalTokens.toLocaleString() : 'N/A';
               })()}
             </span>
@@ -233,6 +260,7 @@ export default function MCPTraceView({
                           <div className={`w-2 h-2 ${call.serviceColor} ${isSelected ? 'ring-2 ring-blue-300' : ''}`} style={{ borderRadius: 0 }}></div>
                           <span className={`text-xs truncate ${isSelected ? 'text-blue-900 font-medium' : 'text-gray-900'}`}>
                             {call.toolName}
+                            {call.isError && <span className="text-red-500 ml-1">⚠</span>}
                           </span>
                           <span className={`text-xs ${isSelected ? 'text-blue-600' : 'text-gray-500'}`}>
                             ({formatDuration(call.duration)})
@@ -285,12 +313,28 @@ export default function MCPTraceView({
                         <div className={`w-3 h-3 ${selectedCall.serviceColor}`} style={{ borderRadius: 0 }}></div>
                         <span className="font-medium text-sm text-gray-900">
                           {selectedCall.toolName}
+                          {selectedCall.isError && <span className="text-red-500 ml-2">⚠</span>}
                         </span>
                       </div>
                       <div className={`text-xs px-2 py-1 ${selectedCall.serviceBg} ${selectedCall.service === 'recipe' ? 'text-blue-700' : 'text-emerald-700'} mb-2`} style={{ borderRadius: 0 }}>
                         {selectedCall.service} service
                       </div>
+                      {selectedCall.isError && (
+                        <div className="text-xs px-2 py-1 bg-red-100 text-red-700" style={{ borderRadius: 0 }}>
+                          ⚠ Error occurred
+                        </div>
+                      )}
                     </div>
+
+                    {/* Error Information */}
+                    {selectedCall.isError && selectedCall.error && (
+                      <div className="p-3 bg-red-50 border border-red-200" style={{ borderRadius: 0 }}>
+                        <h6 className="text-xs font-medium text-red-700 mb-2 uppercase tracking-wide">Error Details</h6>
+                        <div className="text-xs text-red-600 bg-red-100 p-2 border border-red-200" style={{ borderRadius: 0 }}>
+                          {selectedCall.error}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Timing Information */}
                     <div className="p-3 bg-white border border-gray-200" style={{ borderRadius: 0 }}>
@@ -450,20 +494,20 @@ export default function MCPTraceView({
           <h4 className="font-medium text-gray-900">Tool Call Summary</h4>
           
           {/* Recipe Tools */}
-          {recipeData && (
+          {recipeCalls.length > 0 && (
             <div className="bg-blue-50 border border-blue-200 p-4" style={{ borderRadius: 0 }}>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-3 h-3 bg-blue-500" style={{ borderRadius: 0 }}></div>
                 <h5 className="font-medium text-blue-900">Recipe Generation Tools</h5>
                 <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1" style={{ borderRadius: 0 }}>
-                  {recipeData.toolsUsed?.length || 0} calls
+                  {recipeCalls.length} calls
                 </span>
-                {recipeData.usage && (
+                {recipeData?.usage && (
                   <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1" style={{ borderRadius: 0 }}>
                     {recipeData.usage.totalTokens.toLocaleString()} tokens
                   </span>
                 )}
-                {recipeData.timing && (
+                {recipeData?.timing && (
                   <span className="text-xs bg-blue-200 text-blue-800 px-2 py-1" style={{ borderRadius: 0 }}>
                     {formatDuration(recipeData.timing.duration)}
                   </span>
@@ -477,22 +521,22 @@ export default function MCPTraceView({
           )}
 
           {/* Nutrition Tools */}
-          {nutritionData && (
+          {nutritionCalls.length > 0 && (
             <div className="bg-emerald-50 border border-emerald-200 p-4" style={{ borderRadius: 0 }}>
               <div className="flex items-center gap-2 mb-3">
                 <div className="w-3 h-3 bg-emerald-500" style={{ borderRadius: 0 }}></div>
                 <h5 className="font-medium text-emerald-900">Nutrition Analysis Tools</h5>
                 <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1" style={{ borderRadius: 0 }}>
-                  {nutritionData.toolsUsed?.length || 0} calls
+                  {nutritionCalls.length} calls
                 </span>
-                {nutritionData.usage && (
+                {recipeData?.usage && (
                   <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-1" style={{ borderRadius: 0 }}>
-                    {nutritionData.usage.totalTokens.toLocaleString()} tokens
+                    {recipeData.usage.totalTokens.toLocaleString()} tokens
                   </span>
                 )}
-                {nutritionData.timing && (
+                {recipeData?.timing && (
                   <span className="text-xs bg-emerald-200 text-emerald-800 px-2 py-1" style={{ borderRadius: 0 }}>
-                    {formatDuration(nutritionData.timing.duration)}
+                    {formatDuration(recipeData.timing.duration)}
                   </span>
                 )}
               </div>

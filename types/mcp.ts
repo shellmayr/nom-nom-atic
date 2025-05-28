@@ -5,6 +5,8 @@ export interface MCPToolCall {
   startTime?: number;
   endTime?: number;
   duration?: number;
+  error?: string | null;
+  isError?: boolean;
 }
 
 export interface MCPTool {

@@ -2,11 +2,24 @@ import React from "react";
 
 export interface ParsedRecipe {
   title: string;
+  description: string;
+  prepTime: string;
+  cookTime: string;
+  totalTime: string;
+  servings: string;
   ingredients: string[];
   instructions: string[];
-  variations: string[];
-  seasonalAdditions: string[];
-  notes: string[];
+  tips: string[];
+  nutritionInfo: {
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    fiber?: number;
+    sugar?: number;
+    sodium?: number;
+    highlights?: string;
+  } | null;
 }
 
 // Helper function to convert markdown to JSX
@@ -100,11 +113,24 @@ export function parseRecipeContent(recipe: string): ParsedRecipe {
   const lines = recipe.split('\n');
   const ingredients: string[] = [];
   const instructions: string[] = [];
-  const variations: string[] = [];
-  const seasonalAdditions: string[] = [];
-  const notes: string[] = [];
+  const tips: string[] = [];
   let currentSection = '';
   let title = '';
+  let description = '';
+  let prepTime = '';
+  let cookTime = '';
+  let totalTime = '';
+  let servings = '';
+  let nutritionInfo: {
+    calories?: number;
+    protein?: number;
+    carbs?: number;
+    fat?: number;
+    fiber?: number;
+    sugar?: number;
+    sodium?: number;
+    highlights?: string;
+  } | null = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
@@ -116,18 +142,35 @@ export function parseRecipeContent(recipe: string): ParsedRecipe {
       const sectionName = line.slice(4).toLowerCase();
       if (sectionName.includes('ingredient')) {
         currentSection = 'ingredients';
-      } else if (sectionName.includes('instruction')) {
+      } else if (sectionName.includes('instruction') || sectionName.includes('direction') || sectionName.includes('step')) {
         currentSection = 'instructions';
-      } else if (sectionName.includes('variation')) {
-        currentSection = 'variations';
-      } else if (sectionName.includes('seasonal') || sectionName.includes('local')) {
-        currentSection = 'seasonal';
-      } else if (sectionName.includes('note')) {
-        currentSection = 'notes';
+      } else if (sectionName.includes('tip') || sectionName.includes('note') || sectionName.includes('chef')) {
+        currentSection = 'tips';
+      } else if (sectionName.includes('nutrition')) {
+        currentSection = 'nutrition';
       } else {
         currentSection = 'other';
       }
     } else if (line && !line.startsWith('#')) {
+      // Parse metadata from the beginning of the recipe (before sections)
+      if (currentSection === 'title' || currentSection === '') {
+        // Look for description (usually appears right after title)
+        if (!description && line && !line.includes(':') && !line.toLowerCase().includes('prep') && !line.toLowerCase().includes('cook') && !line.toLowerCase().includes('serve')) {
+          description = line;
+        }
+        
+        // Look for timing and serving information
+        if (line.toLowerCase().includes('prep time:') || line.toLowerCase().includes('preparation time:')) {
+          prepTime = line.split(':')[1]?.trim() || '';
+        } else if (line.toLowerCase().includes('cook time:') || line.toLowerCase().includes('cooking time:')) {
+          cookTime = line.split(':')[1]?.trim() || '';
+        } else if (line.toLowerCase().includes('total time:')) {
+          totalTime = line.split(':')[1]?.trim() || '';
+        } else if (line.toLowerCase().includes('serves:') || line.toLowerCase().includes('servings:') || line.toLowerCase().includes('yield:')) {
+          servings = line.split(':')[1]?.trim() || '';
+        }
+      }
+      
       switch (currentSection) {
         case 'ingredients':
           if (line.startsWith('-') || line.startsWith('*') || line.match(/^\d+/)) {
@@ -143,14 +186,104 @@ export function parseRecipeContent(recipe: string): ParsedRecipe {
             instructions.push(line);
           }
           break;
-        case 'variations':
-          variations.push(line);
+        case 'tips':
+          tips.push(line);
           break;
-        case 'seasonal':
-          seasonalAdditions.push(line);
-          break;
-        case 'notes':
-          notes.push(line);
+        case 'nutrition':
+          // Parse nutrition information
+          if (!nutritionInfo) {
+            nutritionInfo = {};
+          }
+          
+          // Look for nutrition data patterns with more flexible matching
+          const lowerLine = line.toLowerCase();
+          
+          // Extract calories - look for various patterns
+          if ((lowerLine.includes('calories') || lowerLine.includes('kcal')) && line.match(/\d+/)) {
+            const calories = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.calories = calories;
+          } 
+          // Extract protein - look for g or grams
+          else if (lowerLine.includes('protein') && line.match(/\d+/)) {
+            const protein = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.protein = protein;
+          } 
+          // Extract carbohydrates - look for carbs, carbohydrates
+          else if ((lowerLine.includes('carb') || lowerLine.includes('carbohydrate')) && line.match(/\d+/)) {
+            const carbs = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.carbs = carbs;
+          } 
+          // Extract total fat
+          else if (lowerLine.includes('fat') && line.match(/\d+/)) {
+            const fat = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.fat = fat;
+          } 
+          // Extract fiber
+          else if (lowerLine.includes('fiber') && line.match(/\d+/)) {
+            const fiber = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.fiber = fiber;
+          } 
+          // Extract sugar
+          else if (lowerLine.includes('sugar') && line.match(/\d+/)) {
+            const sugar = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.sugar = sugar;
+          } 
+          // Extract sodium - look for mg specifically for sodium
+          else if (lowerLine.includes('sodium') && line.match(/\d+/)) {
+            const sodium = parseInt(line.match(/\d+/)?.[0] || '0');
+            nutritionInfo.sodium = sodium;
+          }
+          // Also handle structured data like "Total Calories: 450" or "Per serving: 285 calories"
+          else if (line.includes(':') && lowerLine.includes('calor')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.calories = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && lowerLine.includes('protein')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.protein = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && (lowerLine.includes('carb') || lowerLine.includes('carbohydrate'))) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.carbs = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && lowerLine.includes('fat')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.fat = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && lowerLine.includes('fiber')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.fiber = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && lowerLine.includes('sugar')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.sugar = parseInt(match[0]);
+            }
+          }
+          else if (line.includes(':') && lowerLine.includes('sodium')) {
+            const match = line.split(':')[1]?.match(/\d+/);
+            if (match) {
+              nutritionInfo.sodium = parseInt(match[0]);
+            }
+          }
+          // Capture nutrition highlights (descriptive text that doesn't contain numbers or colons)
+          else if (!line.includes(':') && !line.match(/\d+/) && line.length > 15) {
+            if (!nutritionInfo.highlights) {
+              nutritionInfo.highlights = line;
+            } else {
+              nutritionInfo.highlights += ' ' + line;
+            }
+          }
           break;
       }
     }
@@ -158,11 +291,15 @@ export function parseRecipeContent(recipe: string): ParsedRecipe {
 
   return {
     title,
+    description,
+    prepTime,
+    cookTime,
+    totalTime,
+    servings,
     ingredients,
     instructions,
-    variations,
-    seasonalAdditions,
-    notes
+    tips,
+    nutritionInfo
   };
 }
 

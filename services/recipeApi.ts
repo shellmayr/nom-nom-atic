@@ -3,11 +3,6 @@ export interface RecipeResult {
   mcpData: unknown;
 }
 
-export interface NutritionResult {
-  nutritionData: NutritionData | null;
-  mcpData: unknown;
-}
-
 export interface NutritionData {
   totalNutrition: {
     calories: number;
@@ -58,38 +53,6 @@ export async function generateCombinedRecipe(userInput: string): Promise<RecipeR
     return { 
       recipe: "❌ Error generating recipe. Please try again.",
       mcpData: null 
-    };
-  }
-}
-
-export async function getNutritionData(ingredients: string[]): Promise<NutritionResult> {
-  try {
-    const response = await fetch("/api/nutrition", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ ingredients }),
-    });
-
-    if (!response.ok) {
-      console.error("Failed to get nutrition data");
-      return {
-        nutritionData: null,
-        mcpData: null
-      };
-    }
-
-    const data = await response.json();
-    return {
-      nutritionData: data.nutritionData,
-      mcpData: data.mcpData
-    };
-  } catch (error) {
-    console.error("Error getting nutrition data:", error);
-    return {
-      nutritionData: null,
-      mcpData: null
     };
   }
 }

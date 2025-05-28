@@ -3,110 +3,52 @@ import { openai } from "@ai-sdk/openai";
 import { NextRequest, NextResponse } from "next/server";
 
 export async function POST(request: NextRequest) {
+  let baseRecipe = "Recipe"; // Default fallback
+  
   try {
-    const { recipeName, mcpData } = await request.json();
+    const { recipeName } = await request.json();
 
-    if (!recipeName || !mcpData) {
-      return NextResponse.json(
-        { error: "Recipe name and MCP data are required" },
-        { status: 400 }
-      );
-    }
+    // Use the recipe name to generate a creative title
+    baseRecipe = recipeName || "Recipe";
 
-    // Check if API key is set
-    if (!process.env.OPENAI_API_KEY) {
-      return NextResponse.json(
-        { error: "OpenAI API key is not configured" },
-        { status: 500 }
-      );
-    }
+    // Generate a creative title based on the recipe name
+    const prompt = `Generate a creative, appetizing recipe title based on this recipe request: "${baseRecipe}"
 
-    // Extract location and weather info from MCP tool results
-    let locationInfo = "";
-    let weatherInfo = "";
-    
-    if (mcpData.toolsUsed && mcpData.toolsUsed.length > 0) {
-      mcpData.toolsUsed.forEach((tool: any) => {
-        if (tool.result && tool.result.content && Array.isArray(tool.result.content)) {
-          tool.result.content.forEach((item: any) => {
-            if (item.type === 'text' && item.text) {
-              try {
-                const parsed = JSON.parse(item.text);
-                if (parsed.location) {
-                  locationInfo = parsed.location;
-                }
-                if (parsed.season) {
-                  weatherInfo += `Season: ${parsed.season}. `;
-                }
-                if (parsed.temperature) {
-                  weatherInfo += `Temperature: ${parsed.temperature}. `;
-                }
-                if (parsed.condition) {
-                  weatherInfo += `Weather: ${parsed.condition}. `;
-                }
-                if (parsed.description) {
-                  weatherInfo += parsed.description;
-                }
-              } catch {
-                // If not JSON, treat as plain text
-                if (item.text.toLowerCase().includes('weather') || 
-                    item.text.toLowerCase().includes('temperature') ||
-                    item.text.toLowerCase().includes('season')) {
-                  weatherInfo += item.text + " ";
-                }
-              }
-            }
-          });
-        }
-      });
-    }
+Guidelines:
+- Keep it under 8 words
+- Make it sound delicious and appealing
+- Make it specific and memorable
+- Focus on the cooking style, ingredients, or preparation method
+- Transform the basic request into an enticing title
 
-    const prompt = `Create a creative, catchy, and localized name for a "${recipeName}" recipe.
-
-${locationInfo ? `Location: ${locationInfo}` : ''}
-${weatherInfo ? `Weather/Season Info: ${weatherInfo}` : ''}
-
-Requirements:
-- The name should be creative and memorable
-- Incorporate local/regional elements if location is provided
-- Consider the weather/season information
-- Keep it concise (2-8 words)
-- Make it sound appetizing and unique
-- You can use local landmarks, weather references, or seasonal elements
-- Make sure the name is not just a composite of the ingredients and make sure it's somewhat millenial / gen z
-- Try using a word from the language of the location if it's not English, and make sure it's a word that is somewhat known in English vernacular
-- It should be a single phrase, not a question, and not a statement or a sentence
-- You can also sometimes use the name of a movie as a basis, but change it and make sure it's a good movie
-- The name should be something that Action Bronson would say on fuck that's delicious
-
-Examples of good creative names:
-- "Yolo Pineapple Chicken"
-- "Brainrot Stew"
-- "Sick Sushi"
-- "Funky Spring Sashimi"
-
-Generate ONLY the recipe title, nothing else.`;
+Return ONLY the title, nothing else.`;
 
     const result = await generateText({
       model: openai("gpt-4o-mini"),
-      prompt: prompt,
+      prompt,
       maxTokens: 50,
       experimental_telemetry: {
-        functionId: "name-generation",
         isEnabled: true,
+        functionId: "recipe-title-generation",
         recordInputs: true,
         recordOutputs: true,
-      }
+        metadata: {
+          recipeName: baseRecipe,
+          operation: "title-generation",
+          version: "1.0",
+          timestamp: new Date().toISOString(),
+          model: "gpt-4o-mini",
+          maxTokens: 50,
+        },
+      },
     });
 
-    const title = result.text?.trim() || recipeName;
+    return NextResponse.json({ 
+      title: result.text.trim() || baseRecipe
+    });
 
-    return NextResponse.json({ title });
   } catch (error) {
-    console.error("Error generating recipe title:", error);
-    return NextResponse.json(
-      { error: "Failed to generate recipe title" },
-      { status: 500 }
-    );
+    console.error("Error generating title:", error);
+    return NextResponse.json({ title: baseRecipe || "Delicious Recipe" });
   }
 } 

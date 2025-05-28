@@ -7,7 +7,7 @@ import { MCPData, MCPToolCall } from "../../../types/mcp";
 
 export async function POST(request: NextRequest) {
   const model = "gpt-4o-mini";
-  let mcpClient: Awaited<
+  let nutritionClient: Awaited<
     ReturnType<typeof experimental_createMCPClient>
   > | null = null;
 
@@ -29,8 +29,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Try to create MCP client for additional tools (optional)
-    let mcpTools = {};
+    // Try to create MCP clients for nutrition tools
+    let allTools = {};
     let mcpToolsLoaded = false;
     const mcpData: MCPData = {
       enabled: true,
@@ -44,75 +44,46 @@ export async function POST(request: NextRequest) {
       toolDetails: {},
     };
 
-    // Temporarily disable MCP to debug empty response issue
     const enableMCP = true; // Set to true to enable MCP
 
     if (enableMCP) {
       try {
-        // Connect to our custom weather MCP server
-        const weatherTransport = new Experimental_StdioMCPTransport({
-          command: "node",
-          args: ["mcp-servers/weather-server.js"],
-        });
-
-        const weatherClient = await experimental_createMCPClient({
-          transport: weatherTransport,
-        });
-
-        const weatherTools = await weatherClient.tools();
-
         // Connect to Nutritionix MCP server
-        let nutritionTools = {};
-        let nutritionClient = null;
-        try {
-          const nutritionTransport = new Experimental_StdioMCPTransport({
-            command: "uvx",
-            args: [
-              "nutritionix-mcp-server",
-              "--app-id",
-              process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
-              "--app-key", 
-              process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY"
-            ],
-          });
+        const nutritionTransport = new Experimental_StdioMCPTransport({
+          command: "uvx",
+          args: [
+            "nutritionix-mcp-server",
+            "--app-id",
+            process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
+            "--app-key",
+            process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY",
+          ],
+        });
 
-          nutritionClient = await experimental_createMCPClient({
-            transport: nutritionTransport,
-          });
+        nutritionClient = await experimental_createMCPClient({
+          transport: nutritionTransport,
+        });
 
-          nutritionTools = await nutritionClient.tools();
-          console.log("Nutritionix tools loaded:", Object.keys(nutritionTools));
-        } catch (nutritionError) {
-          console.log("Nutritionix MCP not available:", nutritionError);
-        }
-
-        // Combine tools from both servers
-        mcpTools = { ...weatherTools, ...nutritionTools };
-        mcpClient = weatherClient; // Store primary client for cleanup
+        const nutritionTools = await nutritionClient.tools();
+        allTools = { ...allTools, ...nutritionTools };
         
-        mcpToolsLoaded = true;
-        mcpData.toolsAvailable = Object.keys(mcpTools);
+        mcpToolsLoaded = Object.keys(allTools).length > 0;
+        mcpData.toolsAvailable = Object.keys(allTools);
         mcpData.transport = [
           {
-            name: "weather",
-            command: "node",
-            args: ["mcp-servers/weather-server.js"],
-          },
-          {
-            name: "nutritionix", 
+            name: "nutritionix",
             command: "uvx",
             args: [
               "nutritionix-mcp-server",
               "--app-id",
               process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
               "--app-key",
-              process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY"
+              process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY",
             ],
-          }
+          },
         ];
-        mcpData.toolDetails = mcpTools;
-        console.log("All MCP tools loaded:", Object.keys(mcpTools));
-        console.log("MCP tools details:", JSON.stringify(mcpTools, null, 2));
+        mcpData.toolDetails = allTools;
+        console.log("Nutrition MCP tools loaded:", Object.keys(allTools));
       } catch (mcpError) {
         console.log(
           "MCP not available, continuing without MCP tools:",
@@ -130,61 +101,56 @@ export async function POST(request: NextRequest) {
 
     console.log(
       "About to call generateText with tools:",
-      Object.keys(mcpTools)
+      Object.keys(allTools)
     );
 
-    const systemPrompt = `You are an expert chef and recipe researcher. Your task is to find the top 10 high-quality recipes for a given dish, analyze them, and create one unified "best" recipe that combines their strengths.
+    const systemPrompt = `You have access to nutrition tools that can look up detailed nutritional information for ingredients. Create a detailed, delicious recipe AND provide comprehensive nutrition information.
+
+Create a detailed recipe that includes:
+1. A brief, enticing description (2-3 sentences)
+2. Prep time, cook time, and total time
+3. Serving size
+4. Complete ingredient list with measurements
+5. Step-by-step instructions that are clear and easy to follow (DO NOT number the steps - just provide the instruction text)
+6. Any helpful cooking tips
+7. Use the nutrition tools to analyze the main ingredients and provide detailed nutrition information
+8. If there are no tools available, or tools have errors via the MCP protocol, do not use the tools and provide a generic recipe. Omit the nutrition information if there are no tools that can provide this data reliably.
+9. Once there was a failed tool call, do not keep calling the tools.
+
+Structure your response as:
+## Recipe Title
+[Brief description]
+**Prep Time:** [time]
+**Cook Time:** [time] 
+**Total Time:** [time]
+**Serves:** [number]
+
+### Ingredients
+[ingredient list]
+
+### Instructions
+[step by step instructions]
+
+### Nutrition Information
+Use the nutrition tools to look up the main ingredients and provide:
+- Total calories per serving
+- Protein, carbs, fat, fiber, sugar, sodium per serving
+- Brief nutritional highlights
+
+### Chef's Tips
+[helpful tips]
+
+Format your response clearly and make it engaging!`;
+
+    const userPrompt = `Create a delicious recipe for: ${input}
 
 ${
-  mcpToolsLoaded && Object.keys(mcpTools).length > 0
-    ? "You have access to MCP tools for additional functionality, including weather information and nutrition data. Use them if they can help with recipe research or enhancement. For nutrition tools, you can look up nutritional information for ingredients to provide healthier alternatives or portion guidance. Make sure to only call each tool once with the same parameters to not waste time."
-    : ""
-}
-
-Follow this process:
-1. Figure out if the recipe actually exists, otherwise tell the user that it doesn't exist
-2. Research and identify 10 high-quality recipes for the requested dish
-3. Analyze common ingredients and techniques across all recipes
-4. Use nutrition tools if available to provide nutritional insights about key ingredients
-5. Create a unified recipe that includes only ingredients/steps that appear in multiple recipes
-6. For ingredients that appear in only 1-2 recipes but add special flavor/technique, list them as optional variations
-7. Based on the current season, which you can get from the get_weather call, choose local/regional additions that make the dish special
-      It is of the utmost importance that you stick to the information provided by the tools. Do not make up information. 
-8. Make sure that all ingredients use metric units, like grams, liters, kilograms, etc., and only use weight units unless it is a liquid. 
-
-Format your response as:
-## Unified [Dish Name] Recipe
-
-### Seasonal Context:
-[Brief note about current season and how it influences the recipe]
-
-### Nutritional Highlights:
-[If nutrition data is available, briefly mention key nutritional benefits of main ingredients]
-
-### Ingredients:
-[List core ingredients that appear in multiple recipes]
-
-### Instructions:
-[Step-by-step instructions using common techniques]
-
-### Variations:
-[List special ingredients/techniques from individual recipes as optional additions, explaining what they add]
-
-### Local/Seasonal Additions:
-[Based on current season, suggest local/regional ingredients or techniques that would make this dish special for the current time]
-
-### Notes:
-[Any important tips or observations from your research, including nutritional tips if available]`;
-
-    const userPrompt = `Please find the top 10 high-quality recipes for: ${input}
-
-Then create a unified recipe following the format specified in your system prompt.${
-      mcpToolsLoaded && Object.keys(mcpTools).length > 0
-        ? " Use any available MCP tools that might enhance your research or provide additional context. After using tools, you MUST provide the final unified recipe in the specified format."
+      mcpToolsLoaded && Object.keys(allTools).length > 0
+        ? "Use any available nutrition tools to enhance the recipe with detailed nutritional information. After using tools, you MUST provide the final recipe in the specified format."
         : ""
     }
 
-IMPORTANT: After gathering information with tools, you must generate the complete recipe output in the specified markdown format. Do not end with tool calls - always provide the final recipe text.`;
+IMPORTANT: Generate a complete recipe in the specified markdown format. Focus on creating one excellent recipe rather than multiple options.`;
 
     // Store the prompts and tools in MCP data
     mcpData.systemPrompt = systemPrompt;
@@ -195,17 +161,27 @@ IMPORTANT: After gathering information with tools, you must generate the complet
     
     const result = await generateText({
       model: openai(model),
-      ...(mcpToolsLoaded && Object.keys(mcpTools).length > 0
-        ? { tools: mcpTools }
+      ...(mcpToolsLoaded && Object.keys(allTools).length > 0
+        ? { tools: allTools }
         : {}), // Only include tools if they exist
       maxSteps: 8, // Reduced to encourage final text generation
       system: systemPrompt,
       prompt: userPrompt,
       experimental_telemetry: {
-        functionId: "recipe-generation",
         isEnabled: true,
+        functionId: "recipe-generation",
         recordInputs: true,
         recordOutputs: true,
+        metadata: {
+          userInput: input,
+          mcpToolsAvailable: Object.keys(allTools),
+          mcpEnabled: mcpToolsLoaded,
+          model: model,
+          maxSteps: 8,
+          timestamp: new Date().toISOString(),
+          operation: "recipe-generation",
+          version: "1.0",
+        },
       },
     });
 
@@ -238,11 +214,75 @@ IMPORTANT: After gathering information with tools, you must generate the complet
             const toolResults = step.toolResults as Array<{
               toolCallId?: string;
               result?: unknown;
+              error?: string;
+              isError?: boolean;
             }> | undefined;
             
             const toolResult = toolResults?.find(
               (r) => r.toolCallId === toolCall.toolCallId
             );
+            
+            // Debug logging for tool results
+            console.log(`Tool call: ${toolCall.toolName}`, {
+              toolCallId: toolCall.toolCallId,
+              hasResult: !!toolResult,
+              resultType: typeof toolResult?.result,
+              directError: toolResult?.error,
+              resultContent: toolResult?.result
+            });
+            
+            // Enhanced error detection logic
+            let hasError = false;
+            let errorMessage: string | null = null;
+            
+            // Check for direct error field
+            if (toolResult?.error) {
+              hasError = true;
+              errorMessage = toolResult.error;
+            }
+            // Check for isError flag
+            else if (toolResult?.isError) {
+              hasError = true;
+              errorMessage = errorMessage || "Tool call failed";
+            }
+            // Check if result is an error object
+            else if (toolResult?.result && typeof toolResult.result === 'object' && toolResult.result !== null) {
+              if ('error' in toolResult.result) {
+                hasError = true;
+                errorMessage = String((toolResult.result as { error: unknown }).error);
+              }
+              // Check for common error object patterns
+              else if ('isError' in toolResult.result && (toolResult.result as { isError: boolean }).isError) {
+                hasError = true;
+                errorMessage = 'message' in toolResult.result ? 
+                  String((toolResult.result as { message: unknown }).message) : "Tool execution failed";
+              }
+            }
+            // Check if result is a string that indicates an error
+            else if (typeof toolResult?.result === 'string') {
+              const resultStr = toolResult.result.toLowerCase();
+              if (resultStr.includes('error') || 
+                  resultStr.includes('failed') || 
+                  resultStr.includes('exception') ||
+                  resultStr.includes('timeout') ||
+                  resultStr.includes('invalid') ||
+                  resultStr.startsWith('❌')) {
+                hasError = true;
+                errorMessage = toolResult.result;
+              }
+            }
+            // Check if no tool result was returned (could indicate failure)
+            else if (!toolResult) {
+              hasError = true;
+              errorMessage = "No tool result returned";
+            }
+            
+            // Debug log the final error detection result
+            console.log(`Error detection for ${toolCall.toolName}:`, {
+              hasError,
+              errorMessage,
+              originalResult: toolResult?.result
+            });
             
             // Estimate individual tool call timing within the step
             const toolCallDuration = step.toolCalls.length > 0 ? stepDuration / step.toolCalls.length : stepDuration;
@@ -256,6 +296,8 @@ IMPORTANT: After gathering information with tools, you must generate the complet
               startTime: Math.round(toolCallStart),
               endTime: Math.round(toolCallEnd),
               duration: Math.round(toolCallDuration),
+              error: errorMessage,
+              isError: hasError,
             };
           });
         });
@@ -294,12 +336,12 @@ IMPORTANT: After gathering information with tools, you must generate the complet
       { status: 500 }
     );
   } finally {
-    // Clean up MCP client
-    if (mcpClient) {
+    // Clean up nutrition MCP client
+    if (nutritionClient && 'close' in nutritionClient) {
       try {
-        await mcpClient.close();
+        await (nutritionClient as { close: () => Promise<void> }).close();
       } catch (closeError) {
-        console.error("Error closing MCP client:", closeError);
+        console.error("Error closing nutrition MCP client:", closeError);
       }
     }
   }

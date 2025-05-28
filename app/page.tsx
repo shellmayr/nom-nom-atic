@@ -3,8 +3,8 @@
 import { useState, useEffect } from "react";
 import RecipeForm from "../components/RecipeForm";
 import TabbedRecipeView from "../components/TabbedRecipeView";
-import { generateCombinedRecipe, generateCreativeTitle, generateRecipeImage, getNutritionData, NutritionData } from "../services/recipeApi";
-import { MCPData, isMCPData, hasMCPTools } from "../types/mcp";
+import { generateCombinedRecipe, generateCreativeTitle, generateRecipeImage, NutritionData } from "../services/recipeApi";
+import { MCPData, isMCPData } from "../types/mcp";
 import { parseRecipeContent } from "../utils/recipeParser";
 
 export default function Home() {
@@ -36,7 +36,7 @@ export default function Home() {
     setNutritionLoading(false);
     
     try {
-      // Generate the recipe first
+      // Generate the recipe first (now includes nutrition)
       const result = await generateCombinedRecipe(userInput);
       setRecipe(result.recipe);
       
@@ -50,44 +50,47 @@ export default function Home() {
         setRecipeMcpData(null);
       }
       
-      // Generate creative title if we have MCP data with location/weather info
+      // Generate creative title always, not just when MCP tools are used
       let finalTitle = userInput; // Default fallback
-      if (hasMCPTools(result.mcpData) && result.mcpData.toolsUsed.length > 0) {
-        try {
-          const creativeName = await generateCreativeTitle(userInput, result.mcpData);
-          finalTitle = creativeName;
-        } catch (titleError) {
-          console.error("Error generating creative title:", titleError);
-          // Keep the default title (userInput) if title generation fails
-        }
+      try {
+        const creativeName = await generateCreativeTitle(userInput, result.mcpData);
+        finalTitle = creativeName;
+      } catch (titleError) {
+        console.error("Error generating creative title:", titleError);
+        // Keep the default title (userInput) if title generation fails
       }
       setRecipeTitle(finalTitle);
       
-      // Start background processes (nutrition and image)
-      setNutritionLoading(true);
-      
-      // Parse ingredients from recipe for nutrition analysis
+      // Parse recipe to extract nutrition information
       const parsedRecipe = parseRecipeContent(result.recipe);
-      const ingredientsList = parsedRecipe.ingredients.map(ing => 
-        ing.replace(/^[•\-\*]\s*/, '').replace(/^\d+\.\s*/, '')
-      );
       
-      // Run background processes
-      const [imageUrl, nutritionResult] = await Promise.all([
-        generateRecipeImage(finalTitle),
-        getNutritionData(ingredientsList)
-      ]);
-      
-      // Set results
-      if (imageUrl) {
-        setRecipeImage(imageUrl);
+      // Convert parsed nutrition info to the expected format
+      if (parsedRecipe.nutritionInfo && Object.keys(parsedRecipe.nutritionInfo).length > 0) {
+        const nutritionData: NutritionData = {
+          totalNutrition: {
+            calories: parsedRecipe.nutritionInfo.calories || 0,
+            protein: parsedRecipe.nutritionInfo.protein || 0,
+            carbs: parsedRecipe.nutritionInfo.carbs || 0,
+            fat: parsedRecipe.nutritionInfo.fat || 0,
+            fiber: parsedRecipe.nutritionInfo.fiber || 0,
+            sugar: parsedRecipe.nutritionInfo.sugar || 0,
+            sodium: parsedRecipe.nutritionInfo.sodium || 0,
+          },
+          ingredients: [], // We'll populate this if needed
+        };
+        setNutritionData(nutritionData);
+        // Don't set nutritionMcpData since the tools are already tracked in recipeMcpData
       }
       
-      if (nutritionResult.nutritionData) {
-        setNutritionData(nutritionResult.nutritionData);
+      // Generate recipe image in background
+      try {
+        const imageUrl = await generateRecipeImage(finalTitle);
+        if (imageUrl) {
+          setRecipeImage(imageUrl);
+        }
+      } catch (imageError) {
+        console.error("Error generating recipe image:", imageError);
       }
-      setNutritionMcpData(nutritionResult.mcpData);
-      setNutritionLoading(false);
       
     } catch (error) {
       console.error("Error in recipe generation:", error);
