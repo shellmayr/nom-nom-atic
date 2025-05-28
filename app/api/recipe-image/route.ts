@@ -41,23 +41,6 @@ export async function POST(request: NextRequest) {
           style: "natural"
         },
       },
-      experimental_telemetry: {
-        isEnabled: true,
-        functionId: "recipe-image-generation",
-        recordInputs: true,
-        recordOutputs: true,
-        metadata: {
-          recipeTitle: recipeTitle,
-          operation: "image-generation",
-          version: "1.0",
-          timestamp: new Date().toISOString(),
-          model: "dall-e-3",
-          size: "1024x1024",
-          quality: "standard",
-          style: "natural",
-          promptLength: imagePrompt.length,
-        },
-      },
     });
 
     console.log("Image generation result:", result);
