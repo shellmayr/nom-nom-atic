@@ -85,6 +85,25 @@ export async function POST(request: NextRequest) {
         mcpData.toolDetails = allTools;
         console.log("Nutrition MCP tools loaded:", Object.keys(allTools));
       } catch (mcpError) {
+        console.error("MCP Error:", mcpError);
+        if (typeof window === 'undefined' && process.env.SENTRY_DSN) {
+          Sentry.captureException(mcpError, {
+            tags: {
+              component: 'mcp-client',
+              service: 'nutritionix'
+            },
+            extra: {
+              command: 'uvx',
+              args: [
+                "nutritionix-mcp-server",
+                "--app-id",
+                process.env.NUTRITIONIX_APP_ID || "YOUR_APP_ID",
+                "--app-key",
+                process.env.NUTRITIONIX_APP_KEY || "YOUR_APP_KEY",
+              ]
+            }
+          });
+        }
         console.log(
           "MCP not available, continuing without MCP tools:",
           mcpError
